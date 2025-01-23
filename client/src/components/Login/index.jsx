@@ -1,17 +1,15 @@
 import styles from './styles.module.css';
-import { Link,useNavigate} from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import axios from 'axios';
 
-const Signup = () => {
+const Login = () => {
     const [data,setData] = useState({
-        userName: "",
         email: "",
         password: ""
     });
 
 const [error, setError] = useState(null);
-const navigate = useNavigate();
 
 const handleChange = ({currentTarget: input}) => { 
     setData({...data, [input.name]: input.value})
@@ -21,11 +19,11 @@ const handleSubmit = async(e) => {
     e.preventDefault(); 
     console.log(data);
     try{
-        const url = "http://localhost:3000/api/users"; 
+        const url = "http://localhost:3000/api/auth"; 
         const {data:res} = await axios.post(url, data);
-        console.log(res.message);
-        navigate('/login');
-        
+        localStorage.setItem("token",res.data);
+        window.location = "/"
+
     }catch(error){
         if(error.response && error.response.status >= 400 && error.response.status <= 500){
             setError(error.response.data.message);
@@ -34,28 +32,11 @@ const handleSubmit = async(e) => {
 }
 
   return (
-    <div className={styles.signup_container}>
-        <div className={styles.signup_form_container}>
+    <div className={styles.login_container}>
+        <div className={styles.login_form_container}>
             <div className = {styles.left}>
-                <h1>Welcome Back</h1>
-                <Link to ="/login">
-                    <button type="button" className= {styles.white_btn}>
-                        Sign in
-                    </button>
-                </Link> 
-            </div>
-            <div className = {styles.right}>
                 <form className={styles.form_container} onSubmit={handleSubmit}>
-                    <h1>Create Account</h1>
-                    <input 
-                        type="text" 
-                        placeholder="User Name"
-                        name = "userName"
-                        onChange={handleChange}
-                        value = {data.userName}
-                        required
-                        className={styles.input}                      
-                    />
+                    <h1>Login to Your Account</h1>
                     <input 
                         type="email" 
                         placeholder="Email"
@@ -76,15 +57,25 @@ const handleSubmit = async(e) => {
                     />
                     {error && <div className={styles.error_msg}>{error}</div>}
                     <button type = "submit" className = {styles.green_btn}>
-                        Sign Up
+                        Sign In
                     </button>
 
- 
+    
                 </form>
+                
+            </div>
+            <div className = {styles.right}>
+            <h1> New Here ? </h1>
+            <h1>Welcome Back</h1>
+                <Link to ="/signup">
+                    <button type="button" className= {styles.white_btn}>
+                        Sign Up
+                    </button>
+                </Link>    
             </div>
         </div>
     </div>
   );
 }
 
-export default Signup;
+export default Login;
