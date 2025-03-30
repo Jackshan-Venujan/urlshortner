@@ -20,7 +20,9 @@ FROM nginx:alpine
 # copy the build output to the nginx server
 COPY --from=build /app/build /usr/share/nginx/html
 
-EXPOSE 81
+EXPOSE 3000
+
+CMD ["npm", "start"]
 
 
 
