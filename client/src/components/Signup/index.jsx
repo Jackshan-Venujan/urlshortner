@@ -21,7 +21,7 @@ const handleSubmit = async(e) => {
     e.preventDefault(); 
     console.log(data);
     try{
-        const url = "http://localhost:3000/api/users"; 
+        const url = "http://localhost:5000/api/users"; 
         const {data:res} = await axios.post(url, data);
         console.log(res.message);
         navigate('/login');
