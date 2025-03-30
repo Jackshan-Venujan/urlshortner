@@ -1,0 +1,28 @@
+  version: '3'
+  services:
+    server:
+      build:
+        context: ./server
+      ports:
+        - "3000:3000"
+      networks:
+        - urlshortner-network
+
+    client:
+      build:
+        context: ./client
+      ports:
+        - "8000:80"
+
+    mongo:
+      image: mongo:latest
+      ports:
+        - "27017:27017"
+      networks:
+            - urlshortner-network
+
+
+  networks:
+    urlshortner-network:
+      driver: bridge
+

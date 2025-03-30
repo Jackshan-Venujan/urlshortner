@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { User } = require('../models/user');
 const Joi = require('joi'); // Use capital 'J' as required
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 // You may need to import or define passwordComplexity
 const passwordComplexity = require('joi-password-complexity'); // If using joi-password-complexity, import it here
