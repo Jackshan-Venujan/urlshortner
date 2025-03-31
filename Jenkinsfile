@@ -12,6 +12,9 @@ pipeline {
         AWS_ACCESS_KEY_ID = "${AWS_CREDENTIALS_USR}"
         AWS_SECRET_ACCESS_KEY = "${AWS_CREDENTIALS_PSW}"
         AWS_REGION = 'us-east-1'
+        
+        // Add Terraform to PATH
+        PATH = "C:\\Terraform;${env.PATH}"
     }
 
     stages {
@@ -100,6 +103,29 @@ pipeline {
             }
         }
         
+        stage('Create Docker Hub Repositories') {
+            steps {
+                script {
+                    // Create repositories if they don't exist
+                    try {
+                        bat '''
+                        curl -X POST -H "Content-Type: application/json" -H "Authorization: JWT %DOCKER_HUB_CREDENTIALS_PSW%" -d "{\"namespace\":\"%DOCKER_HUB_CREDENTIALS_USR%\",\"name\":\"urlshortner-server\",\"is_private\":false}" https://hub.docker.com/v2/repositories/
+                        '''
+                    } catch (Exception e) {
+                        echo "Repository urlshortner-server might already exist: ${e.message}"
+                    }
+                    
+                    try {
+                        bat '''
+                        curl -X POST -H "Content-Type: application/json" -H "Authorization: JWT %DOCKER_HUB_CREDENTIALS_PSW%" -d "{\"namespace\":\"%DOCKER_HUB_CREDENTIALS_USR%\",\"name\":\"urlshortner-client\",\"is_private\":false}" https://hub.docker.com/v2/repositories/
+                        '''
+                    } catch (Exception e) {
+                        echo "Repository urlshortner-client might already exist: ${e.message}"
+                    }
+                }
+            }
+        }
+        
         stage('Push Docker Images') {
             steps {
                 script {
@@ -137,12 +163,21 @@ pipeline {
                 script {
                     try {
                         dir('infrastructure/terraform') {
+                            // Check if Terraform is available
+                            bat 'where terraform || echo Terraform not found in PATH'
+                            
+                            // Try to initialize and apply Terraform
                             bat 'terraform init'
                             bat 'terraform apply -auto-approve'
                         }
                     } catch (Exception e) {
                         echo "ERROR during Terraform deployment: ${e.message}"
-                        error("Terraform deployment failed. Cannot continue with deployment.")
+                        echo "Attempting to use local Terraform installation..."
+                        
+                        dir('infrastructure/terraform') {
+                            bat 'C:\\Terraform\\terraform.exe init'
+                            bat 'C:\\Terraform\\terraform.exe apply -auto-approve'
+                        }
                     }
                     
                     try {
