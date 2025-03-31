@@ -23,7 +23,7 @@ const handleSubmit = async(e) => {
     try{
         //const url = process.env.REACT_APP_API_URL || "http://localhost:5000/api/users"; 
         //const url = "http://localhost:5000/api/users"; 
-        const url = "http://server:5000/api/users";
+        const url = "http://server:5001/api/users";
         const {data:res} = await axios.post(url, data);
         console.log(res.message);
         navigate('/login');
