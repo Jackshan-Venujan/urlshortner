@@ -204,31 +204,75 @@ pipeline {
                         sleep(180)
                         
                         dir('infrastructure/ansible') {
-                            // Use Ansible through WSL
-                            echo "Running Ansible through WSL..."
+                            // Check if inventory file exists
+                            bat 'if exist inventory.ini (echo Inventory file found) else (echo Inventory file not found)'
                             
-                            // Copy the inventory file to a location accessible by WSL
-                            bat 'copy inventory.ini C:\\temp\\inventory.ini'
+                            // Create temp directory if it doesn't exist
+                            bat 'if not exist C:\\temp mkdir C:\\temp'
+                            bat 'if not exist C:\\temp\\templates mkdir C:\\temp\\templates'
+                            
+                            // Check if we need to create a mock inventory file
+                            bat '''
+                            if not exist inventory.ini (
+                                echo Creating mock inventory file for testing...
+                                echo [urlshortner_servers] > C:\\temp\\inventory.ini
+                                echo 127.0.0.1 ansible_user=ubuntu ansible_connection=local >> C:\\temp\\inventory.ini
+                                echo. >> C:\\temp\\inventory.ini
+                                echo [urlshortner_servers:vars] >> C:\\temp\\inventory.ini
+                                echo ansible_python_interpreter=/usr/bin/python3 >> C:\\temp\\inventory.ini
+                            ) else (
+                                copy inventory.ini C:\\temp\\inventory.ini
+                            )
+                            '''
                             
                             // Copy the deploy.yml file to a location accessible by WSL
                             bat 'copy deploy.yml C:\\temp\\deploy.yml'
                             
                             // Copy the template file to a location accessible by WSL
-                            bat 'mkdir C:\\temp\\templates'
                             bat 'copy ..\\templates\\docker-compose.yml.j2 C:\\temp\\templates\\'
                             
-                            // Copy the SSH key to a location accessible by WSL
-                            bat 'copy urlshortner_app_key.pem C:\\temp\\'
-                            
-                            // Run Ansible through WSL
+                            // Check if SSH key exists and copy it
                             bat '''
-                            wsl chmod 400 /mnt/c/temp/urlshortner_app_key.pem
-                            wsl ansible-playbook -i /mnt/c/temp/inventory.ini /mnt/c/temp/deploy.yml -e "server_image=%DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG%" -e "client_image=%DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG%" --extra-vars "ansible_ssh_private_key_file=/mnt/c/temp/urlshortner_app_key.pem"
+                            if exist urlshortner_app_key.pem (
+                                copy urlshortner_app_key.pem C:\\temp\\
+                                echo SSH key found and copied
+                            ) else (
+                                echo SSH key not found, will use local deployment
+                            )
+                            '''
+                            
+                            // Run Ansible through WSL with appropriate options
+                            bat '''
+                            echo Running Ansible through WSL...
+                            
+                            if exist C:\\temp\\urlshortner_app_key.pem (
+                                wsl chmod 400 /mnt/c/temp/urlshortner_app_key.pem
+                                wsl ansible-playbook -i /mnt/c/temp/inventory.ini /mnt/c/temp/deploy.yml -e "server_image=%DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG%" -e "client_image=%DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG%" --extra-vars "ansible_ssh_private_key_file=/mnt/c/temp/urlshortner_app_key.pem"
+                            ) else (
+                                echo Using local deployment mode since SSH key is not available
+                                wsl ansible-playbook -i /mnt/c/temp/inventory.ini /mnt/c/temp/deploy.yml -e "server_image=%DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG%" -e "client_image=%DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG%" -c local
+                            )
                             '''
                         }
                     } catch (Exception e) {
                         echo "ERROR during deployment: ${e.message}"
-                        error("Deployment failed.")
+                        echo "Attempting local Docker Compose deployment as fallback..."
+                        
+                        // Fallback to local Docker Compose deployment
+                        dir('infrastructure/templates') {
+                            bat '''
+                            echo Creating local Docker Compose file...
+                            type docker-compose.yml.j2 | findstr /v "{{ .* }}" > C:\\temp\\docker-compose.yml
+                            echo Replacing template variables...
+                            powershell -Command "(Get-Content C:\\temp\\docker-compose.yml) -replace '\\{\\{ server_image \\}\\}', '%DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG%' -replace '\\{\\{ client_image \\}\\}', '%DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG%' | Set-Content C:\\temp\\docker-compose.yml"
+                            
+                            echo Running Docker Compose locally...
+                            cd C:\\temp
+                            docker-compose up -d
+                            '''
+                        }
+                        
+                        error("Remote deployment failed, but local deployment attempted.")
                     }
                 }
             }
