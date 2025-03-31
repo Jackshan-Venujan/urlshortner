@@ -1,13 +1,13 @@
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "ap-southeast-1"  # Changed to ap-southeast-1 (Singapore)
+  default     = "us-east-1"
 }
 
 variable "ami_id" {
   description = "Amazon Machine Image ID"
   type        = string
-  default     = "ami-078c1149d8ad719a7"  # Ubuntu 22.04 LTS AMI for ap-southeast-1 (Singapore)
+  default     = "ami-0c55b159cbfafe1f0"  # Ubuntu 20.04 LTS AMI for us-east-1
 }
 
 variable "instance_type" {
@@ -23,7 +23,7 @@ variable "key_name" {
 variable "create_new_vpc" {
   description = "Whether to create a new VPC or use an existing one"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "existing_vpc_id" {

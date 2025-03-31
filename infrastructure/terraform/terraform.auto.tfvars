@@ -1,6 +1,6 @@
 # Use this file to provide your existing infrastructure details
-# Leave create_new_vpc as false to use existing infrastructure
-# Or set to true if you want to create new resources (but be aware of AWS VPC limits)
+# Leave create_new_vpc as true to create new resources
+# Or set to false if you want to use existing infrastructure
 
 # To get VPC details, run: aws ec2 describe-vpcs
 # To get subnet details, run: aws ec2 describe-subnets
@@ -23,5 +23,5 @@ aws_region = "us-east-1"
 # EC2 instance type
 instance_type = "t2.micro"
 
-# Latest Amazon Linux 2 AMI
+# Latest Ubuntu 20.04 LTS AMI for us-east-1
 ami_id = "ami-0c55b159cbfafe1f0"

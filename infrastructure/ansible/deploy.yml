@@ -4,32 +4,63 @@
   become: yes
   vars:
     docker_compose_version: "1.29.2"
-    server_image: "venujan/urlshortner-server:latest"
-    client_image: "venujan/urlshortner-client:latest"
+    server_image: "{{ server_image | default('venujan/urlshortner-server:latest') }}"
+    client_image: "{{ client_image | default('venujan/urlshortner-client:latest') }}"
     app_dir: "/opt/urlshortner"
   
   tasks:
-    # Amazon Linux detection
-    - name: Detect Amazon Linux
+    # OS detection
+    - name: Detect OS
       command: cat /etc/os-release
       register: os_release
       changed_when: false
     
     - name: Set OS facts
       set_fact:
-        is_amazon_linux: "{{ 'Amazon Linux' in os_release.stdout }}"
+        is_ubuntu: "{{ 'Ubuntu' in os_release.stdout }}"
         is_debian: "{{ ansible_os_family == 'Debian' if ansible_os_family is defined else false }}"
-        is_redhat: "{{ ansible_os_family == 'RedHat' if ansible_os_family is defined else false }}"
+        is_amazon_linux: "{{ 'Amazon Linux' in os_release.stdout }}"
     
     - name: Debug OS detection
       debug:
-        msg: "Detected OS: {{ 'Amazon Linux' if is_amazon_linux else ansible_os_family | default('Unknown') }}"
+        msg: "Detected OS: {{ 'Ubuntu' if is_ubuntu else 'Amazon Linux' if is_amazon_linux else ansible_os_family | default('Unknown') }}"
 
-    # Package management for Debian
-    - name: Update apt cache (Debian)
+    # Package management for Debian/Ubuntu
+    - name: Update apt cache (Debian/Ubuntu)
       apt:
         update_cache: yes
-      when: is_debian
+      when: is_debian or is_ubuntu
+      
+    - name: Install required packages (Debian/Ubuntu)
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - git
+        state: present
+      when: is_debian or is_ubuntu
+
+    # Docker installation for Debian/Ubuntu
+    - name: Add Docker GPG key (Debian/Ubuntu)
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      when: is_debian or is_ubuntu
+
+    - name: Add Docker repository (Debian/Ubuntu)
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+      when: is_debian or is_ubuntu
+
+    - name: Install Docker (Debian/Ubuntu)
+      apt:
+        name: docker-ce
+        state: present
+      when: is_debian or is_ubuntu
       
     # Package management for Amazon Linux
     - name: Update yum cache (Amazon Linux)
@@ -44,38 +75,6 @@
     - name: Install Python and Git (Amazon Linux)
       command: yum install -y python3-pip git
       when: is_amazon_linux
-    
-    # Package management for Debian
-    - name: Install required packages (Debian)
-      apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - software-properties-common
-          - python3-pip
-          - git
-        state: present
-      when: is_debian
-
-    # Docker installation for Debian
-    - name: Add Docker GPG key (Debian)
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
-      when: is_debian
-
-    - name: Add Docker repository (Debian)
-      apt_repository:
-        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
-        state: present
-      when: is_debian
-
-    - name: Install Docker (Debian)
-      apt:
-        name: docker-ce
-        state: present
-      when: is_debian
 
     # Common Docker setup
     - name: Start Docker service
