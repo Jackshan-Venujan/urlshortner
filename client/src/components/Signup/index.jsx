@@ -22,8 +22,8 @@ const handleSubmit = async(e) => {
     console.log(data);
     try{
         //const url = process.env.REACT_APP_API_URL || "http://localhost:5000/api/users"; 
-        //const url = "http://localhost:5000/api/users"; 
-        const url = "http://server:5001/api/users";
+        const url = "http://localhost:5001/api/users"; 
+        //const url = "http://localhost:5001/api/users";
         const {data:res} = await axios.post(url, data);
         console.log(res.message);
         navigate('/login');
@@ -78,7 +78,7 @@ const handleSubmit = async(e) => {
                     />
                     {error && <div className={styles.error_msg}>{error}</div>}
                     <button type = "submit" className = {styles.green_btn}>
-                        Sign Up hello
+                        Sign Up
                     </button>
 
  

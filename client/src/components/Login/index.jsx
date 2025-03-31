@@ -20,7 +20,7 @@ const handleSubmit = async(e) => {
     console.log(data);
     try{
         //const url = "http://localhost:5001/api/auth";
-        const url = "http://server:5000/api/auth"; 
+        const url = "http://localhost:5001/api/auth"; 
         const {data:res} = await axios.post(url, data);
         console.log("Full response:", res);
         localStorage.setItem("token",res.data);
