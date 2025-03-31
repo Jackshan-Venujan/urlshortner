@@ -185,11 +185,31 @@ pipeline {
                         sleep(180)
                         
                         dir('infrastructure/ansible') {
-                            bat 'ansible-playbook -i inventory.ini deploy.yml -e "server_image=%DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG%" -e "client_image=%DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG%"'
+                            // Use Ansible through WSL
+                            echo "Running Ansible through WSL..."
+                            
+                            // Copy the inventory file to a location accessible by WSL
+                            bat 'copy inventory.ini C:\\temp\\inventory.ini'
+                            
+                            // Copy the deploy.yml file to a location accessible by WSL
+                            bat 'copy deploy.yml C:\\temp\\deploy.yml'
+                            
+                            // Copy the template file to a location accessible by WSL
+                            bat 'mkdir C:\\temp\\templates'
+                            bat 'copy ..\\templates\\docker-compose.yml.j2 C:\\temp\\templates\\'
+                            
+                            // Copy the SSH key to a location accessible by WSL
+                            bat 'copy urlshortner_app_key.pem C:\\temp\\'
+                            
+                            // Run Ansible through WSL
+                            bat '''
+                            wsl chmod 400 /mnt/c/temp/urlshortner_app_key.pem
+                            wsl ansible-playbook -i /mnt/c/temp/inventory.ini /mnt/c/temp/deploy.yml -e "server_image=%DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG%" -e "client_image=%DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG%" --extra-vars "ansible_ssh_private_key_file=/mnt/c/temp/urlshortner_app_key.pem"
+                            '''
                         }
                     } catch (Exception e) {
-                        echo "ERROR during Ansible deployment: ${e.message}"
-                        error("Ansible deployment failed.")
+                        echo "ERROR during deployment: ${e.message}"
+                        error("Deployment failed.")
                     }
                 }
             }
