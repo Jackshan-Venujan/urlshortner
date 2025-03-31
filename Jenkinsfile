@@ -91,14 +91,33 @@ pipeline {
         
         stage('Build Docker Images') {
             steps {
-                dir('server') {
-                    bat "docker build -t ${DOCKER_IMAGE_NAME_SERVER}:${DOCKER_IMAGE_TAG} ."
-                    bat "docker tag ${DOCKER_IMAGE_NAME_SERVER}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME_SERVER}:latest"
-                }
-                
-                dir('client') {
-                    bat "docker build -t ${DOCKER_IMAGE_NAME_CLIENT}:${DOCKER_IMAGE_TAG} ."
-                    bat "docker tag ${DOCKER_IMAGE_NAME_CLIENT}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME_CLIENT}:latest"
+                script {
+                    try {
+                        dir('server') {
+                            echo "Building server Docker image..."
+                            bat "docker build -t ${DOCKER_IMAGE_NAME_SERVER}:${DOCKER_IMAGE_TAG} ."
+                            
+                            // Remove existing latest tag if it exists
+                            bat "docker rmi ${DOCKER_IMAGE_NAME_SERVER}:latest || echo Latest tag doesn't exist yet"
+                            bat "docker tag ${DOCKER_IMAGE_NAME_SERVER}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME_SERVER}:latest"
+                        }
+                    } catch (Exception e) {
+                        echo "WARNING: Failed to build server image: ${e.message}"
+                        echo "Will continue with client image build"
+                    }
+                    
+                    try {
+                        dir('client') {
+                            echo "Building client Docker image..."
+                            bat "docker build -t ${DOCKER_IMAGE_NAME_CLIENT}:${DOCKER_IMAGE_TAG} ."
+                            
+                            // Remove existing latest tag if it exists
+                            bat "docker rmi ${DOCKER_IMAGE_NAME_CLIENT}:latest || echo Latest tag doesn't exist yet"
+                            bat "docker tag ${DOCKER_IMAGE_NAME_CLIENT}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME_CLIENT}:latest"
+                        }
+                    } catch (Exception e) {
+                        echo "WARNING: Failed to build client image: ${e.message}"
+                    }
                 }
             }
         }
