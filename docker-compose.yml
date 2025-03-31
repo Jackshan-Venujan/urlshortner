@@ -7,12 +7,22 @@
         - "5000:5000"
       networks:
         - urlshortner-network
+      depends_on:
+        - mongo
+      environment:
+        - DB=mongodb://mongo:27017/urlshortner_database
 
     client:
       build:
         context: ./client
       ports:
-        - "3000:3000"
+        - "8000:80"
+      networks:
+        - urlshortner-network
+      depends_on:
+        - server
+      environment:
+        - REACT_APP_API_URL=http://server:5000/api
 
     mongo:
       image: mongo:latest

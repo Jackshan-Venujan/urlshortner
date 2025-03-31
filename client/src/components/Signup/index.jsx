@@ -21,7 +21,9 @@ const handleSubmit = async(e) => {
     e.preventDefault(); 
     console.log(data);
     try{
-        const url = "http://localhost:5000/api/users"; 
+        //const url = process.env.REACT_APP_API_URL || "http://localhost:5000/api/users"; 
+        //const url = "http://localhost:5000/api/users"; 
+        const url = "http://server:5000/api/users";
         const {data:res} = await axios.post(url, data);
         console.log(res.message);
         navigate('/login');
