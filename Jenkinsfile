@@ -35,7 +35,7 @@ pipeline {
                     steps {
                         dir('frontend') {
                             bat 'npm install'
-                            bat 'npm run build'
+                            bat 'npm start'
                         }
                     }
                 }
@@ -58,7 +58,7 @@ pipeline {
                         dir('frontend') {
                             echo 'Running frontend tests...'
                             // Replace with actual test commands when tests are implemented
-                            // bat 'npm test'
+                            // bat 'npm start'
                         }
                     }
                 }
