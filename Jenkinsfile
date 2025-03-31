@@ -175,8 +175,8 @@ pipeline {
                         echo "Attempting to use local Terraform installation..."
                         
                         dir('infrastructure/terraform') {
-                            bat 'C:\\Terraform\\terraform.exe init'
-                            bat 'C:\\Terraform\\terraform.exe apply -auto-approve'
+                            bat 'C:\terraform_1.11.3_windows_amd64\terraform.exe init'
+                            bat 'C:\terraform_1.11.3_windows_amd64\terraform.exe apply -auto-approve'
                         }
                     }
                     
