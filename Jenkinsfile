@@ -262,9 +262,56 @@ pipeline {
                         dir('infrastructure/templates') {
                             bat '''
                             echo Creating local Docker Compose file...
-                            type docker-compose.yml.j2 | findstr /v "{{ .* }}" > C:\\temp\\docker-compose.yml
-                            echo Replacing template variables...
-                            powershell -Command "(Get-Content C:\\temp\\docker-compose.yml) -replace '\\{\\{ server_image \\}\\}', '%DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG%' -replace '\\{\\{ client_image \\}\\}', '%DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG%' | Set-Content C:\\temp\\docker-compose.yml"
+                            
+                            echo version: '3' > C:\\temp\\docker-compose.yml
+                            echo services: >> C:\\temp\\docker-compose.yml
+                            echo   server: >> C:\\temp\\docker-compose.yml
+                            echo     image: %DOCKER_IMAGE_NAME_SERVER%:%DOCKER_IMAGE_TAG% >> C:\\temp\\docker-compose.yml
+                            echo     container_name: urlshortner-server >> C:\\temp\\docker-compose.yml
+                            echo     ports: >> C:\\temp\\docker-compose.yml
+                            echo       - "5001:5001" >> C:\\temp\\docker-compose.yml
+                            echo     environment: >> C:\\temp\\docker-compose.yml
+                            echo       - NODE_ENV=production >> C:\\temp\\docker-compose.yml
+                            echo       - DB=mongodb://mongo:27017/urlshortner_database >> C:\\temp\\docker-compose.yml
+                            echo     depends_on: >> C:\\temp\\docker-compose.yml
+                            echo       - mongo >> C:\\temp\\docker-compose.yml
+                            echo     networks: >> C:\\temp\\docker-compose.yml
+                            echo       - urlshortner-network >> C:\\temp\\docker-compose.yml
+                            echo     restart: unless-stopped >> C:\\temp\\docker-compose.yml
+                            
+                            echo   client: >> C:\\temp\\docker-compose.yml
+                            echo     image: %DOCKER_IMAGE_NAME_CLIENT%:%DOCKER_IMAGE_TAG% >> C:\\temp\\docker-compose.yml
+                            echo     container_name: urlshortner-client >> C:\\temp\\docker-compose.yml
+                            echo     ports: >> C:\\temp\\docker-compose.yml
+                            echo       - "80:80" >> C:\\temp\\docker-compose.yml
+                            echo     depends_on: >> C:\\temp\\docker-compose.yml
+                            echo       - server >> C:\\temp\\docker-compose.yml
+                            echo     environment: >> C:\\temp\\docker-compose.yml
+                            echo       - REACT_APP_API_URL=http://localhost:5001/api >> C:\\temp\\docker-compose.yml
+                            echo     networks: >> C:\\temp\\docker-compose.yml
+                            echo       - urlshortner-network >> C:\\temp\\docker-compose.yml
+                            echo     restart: unless-stopped >> C:\\temp\\docker-compose.yml
+                            
+                            echo   mongo: >> C:\\temp\\docker-compose.yml
+                            echo     image: mongo:latest >> C:\\temp\\docker-compose.yml
+                            echo     container_name: urlshortner-mongo >> C:\\temp\\docker-compose.yml
+                            echo     ports: >> C:\\temp\\docker-compose.yml
+                            echo       - "27018:27017" >> C:\\temp\\docker-compose.yml
+                            echo     volumes: >> C:\\temp\\docker-compose.yml
+                            echo       - mongo-data:/data/db >> C:\\temp\\docker-compose.yml
+                            echo     networks: >> C:\\temp\\docker-compose.yml
+                            echo       - urlshortner-network >> C:\\temp\\docker-compose.yml
+                            echo     restart: unless-stopped >> C:\\temp\\docker-compose.yml
+                            
+                            echo networks: >> C:\\temp\\docker-compose.yml
+                            echo   urlshortner-network: >> C:\\temp\\docker-compose.yml
+                            echo     driver: bridge >> C:\\temp\\docker-compose.yml
+                            
+                            echo volumes: >> C:\\temp\\docker-compose.yml
+                            echo   mongo-data: >> C:\\temp\\docker-compose.yml
+                            
+                            echo Docker Compose file created at C:\\temp\\docker-compose.yml
+                            type C:\\temp\\docker-compose.yml
                             
                             echo Running Docker Compose locally...
                             cd C:\\temp
