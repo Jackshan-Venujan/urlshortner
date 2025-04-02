@@ -68,7 +68,7 @@ const handleSubmit = async(e) => {
             </div>
             <div className = {styles.right}>
             <h1> New Here ? </h1>
-            <h1>Welcome Back Bro</h1>
+            <h1>Welcome Back Saitaan</h1>
                 <Link to ="/signup">
                     <button type="button" className= {styles.white_btn}>
                         Sign Up
