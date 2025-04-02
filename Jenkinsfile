@@ -122,21 +122,22 @@ pipeline {
                 sh '''
                     # Wait for SSH to be available on the EC2 instance
                     echo "Waiting for SSH on ${EC2_PUBLIC_IP} to become available..."
-                    timeout=300
+                    timeout=600
                     counter=0
-                    interval=10
+                    interval=15
                     
-                    while ! nc -z ${EC2_PUBLIC_IP} 22 &>/dev/null; do
-                        if [ $counter -ge $timeout ]; then
-                            echo "Timed out waiting for SSH to become available"
-                            exit 1
-                        fi
-                        echo "SSH not available yet, waiting ${interval} seconds..."
+                    until nc -z -w 5 ${EC2_PUBLIC_IP} 22 || [ $counter -ge $timeout ]; do
+                        echo "SSH not available yet, waiting ${interval} seconds... ($counter/$timeout seconds elapsed)"
                         sleep ${interval}
                         counter=$((counter + interval))
                     done
                     
-                    echo "SSH is now available on ${EC2_PUBLIC_IP}"
+                    if [ $counter -ge $timeout ]; then
+                        echo "Timed out waiting for SSH to become available"
+                        exit 1
+                    else
+                        echo "SSH is now available on ${EC2_PUBLIC_IP} after $counter seconds"
+                    fi
                 '''
             }
         }
