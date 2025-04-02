@@ -1,0 +1,12 @@
+---
+all:
+  vars:
+    ansible_user: ubuntu
+    ansible_ssh_private_key_file: "~/.ssh/aws-key.pem"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+  children:
+    app_servers:
+      hosts:
+        url_shortener:
+          # This will be dynamically updated by the Jenkins pipeline
+          ansible_host: "{{ app_host_ip }}"
