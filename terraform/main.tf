@@ -31,7 +31,7 @@ resource "aws_instance" "url_shortener_app" {
 }
 
 resource "aws_security_group" "app_sg" {
-  name        = "url-shortener-sg"
+  name        = "url-shortener-sg-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
   description = "Security group for URL Shortener app"
 
   # Allow SSH
