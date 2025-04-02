@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # build the application
-RUN npm run build
+RUN npm run build && echo "Build completed at $(date)" > /app/build/build-info.txt
 
 FROM nginx:alpine
 
@@ -26,5 +26,3 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
-
-

@@ -16,8 +16,8 @@ pipeline {
         
         stage('Build Docker Images') {
             steps {
-                sh 'docker build -t ${DOCKERHUB_USERNAME}/${APP_NAME}-server:latest ./server'
-                sh 'docker build -t ${DOCKERHUB_USERNAME}/${APP_NAME}-client:latest ./client'
+                sh 'docker build --no-cache -t ${DOCKERHUB_USERNAME}/${APP_NAME}-server:latest ./server'
+                sh 'docker build --no-cache -t ${DOCKERHUB_USERNAME}/${APP_NAME}-client:latest ./client'
                 // If you have a separate MongoDB image to build:
                 // sh 'docker build -t ${DOCKERHUB_USERNAME}/${APP_NAME}-mongodb:latest ./mongodb'
             }
