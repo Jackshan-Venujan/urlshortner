@@ -1,6 +1,6 @@
 ---
 - name: Deploy URL Shortener Application
-  hosts: app_servers
+  hosts: url_shortener
   become: yes
   vars:
     app_name: urlshortner
