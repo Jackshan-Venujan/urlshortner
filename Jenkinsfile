@@ -145,13 +145,27 @@ pipeline {
         stage('Deploy with Ansible') {
             steps {
                 dir('ansible') {
-                    // Copy the SSH key to workspace
-                    sh "mkdir -p ~/.ssh"
-                    sh "cp ${SSH_KEY_CREDENTIALS} ~/.ssh/aws-key.pem"
-                    sh "chmod 600 ~/.ssh/aws-key.pem"
+                    // Copy the SSH key to workspace with proper error handling
+                    sh '''
+                        # Create .ssh directory with proper permissions
+                        mkdir -p "${WORKSPACE}/.ssh"
+                        chmod 700 "${WORKSPACE}/.ssh"
+                        
+                        # Copy and secure the SSH key
+                        cp ${SSH_KEY_CREDENTIALS} "${WORKSPACE}/.ssh/aws-key.pem"
+                        chmod 600 "${WORKSPACE}/.ssh/aws-key.pem"
+                        
+                        # Verify the file exists
+                        if [ ! -f "${WORKSPACE}/.ssh/aws-key.pem" ]; then
+                            echo "Failed to create key file"
+                            exit 1
+                        else
+                            echo "SSH key copied successfully"
+                        fi
+                    '''
                     
                     // Create the hosts file for Ansible
-                    sh "echo 'url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aws-key.pem ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"' > hosts"
+                    sh "echo 'url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/.ssh/aws-key.pem ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"' > hosts"
                     
                     // Run Ansible playbook
                     sh "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i hosts deploy.yml --extra-vars 'app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}'"
