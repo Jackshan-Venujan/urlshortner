@@ -91,11 +91,10 @@
       args:
         chdir: "/home/ubuntu/{{ app_name }}"
       become: yes
-      become_user: ubuntu
     
     - name: Run Docker Compose
       shell: |
-        docker-compose up -d
+        sudo docker-compose up -d
       args:
         chdir: "/home/ubuntu/{{ app_name }}"
       become: yes
