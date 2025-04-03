@@ -1,4 +1,5 @@
-  version: '3'
+  version: '3.8'
+
 services:
   server:
     build:
@@ -10,8 +11,7 @@ services:
     depends_on:
       - mongo
     environment:
-      - DB=mongodb://mongo:27017/urlshortner_database
-
+      - DB=mongodb://mongo:27018/urlshortner_database
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
@@ -31,7 +31,6 @@ services:
       - server
     environment:
       - REACT_APP_API_URL=http://localhost:5001/api
-
     restart: unless-stopped
 
   mongo:
