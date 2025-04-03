@@ -144,9 +144,22 @@ pipeline {
                         cat "${SSH_KEY_CREDENTIALS}" > "${WORKSPACE}/.ssh/aws-key.pem"
                         chmod 600 "${WORKSPACE}/.ssh/aws-key.pem"
                         
-                        echo "url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/.ssh/aws-key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" > hosts
+                        # Create the hosts file with app_servers group
+                        echo "[app_servers]" > hosts
+                        echo "url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/.ssh/aws-key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> hosts
                         
-                        ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i hosts deploy.yml --extra-vars "app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}"
+                        # Debug: Show hosts file content
+                        echo "---------- HOSTS FILE CONTENT ----------"
+                        cat hosts
+                        echo "----------------------------------------"
+                        
+                        # Debug: Show playbook content
+                        echo "---------- PLAYBOOK CONTENT ----------"
+                        cat deploy.yml
+                        echo "--------------------------------------"
+                        
+                        # Run ansible with verbose logging
+                        ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -vvv -i hosts deploy.yml --extra-vars "app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}"
                     '''
                 }
             }
