@@ -9,7 +9,7 @@ pipeline {
         DOCKERHUB_USERNAME = "venujan"
         WORKSPACE_PATH = "${WORKSPACE}"
         AWS_REGION = "us-east-1"
-        EC2_KEY_NAME = "aws-key"
+        EC2_KEY_NAME = "urlshortner-new-key"
     }
     
     stages {
