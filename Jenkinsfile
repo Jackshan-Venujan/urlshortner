@@ -145,22 +145,32 @@ pipeline {
         stage('Deploy with Ansible') {
             steps {
                 dir('ansible') {
-                    // Copy the SSH key to workspace with proper error handling
+                    // Copy the SSH key to workspace with proper error handling and correct path escaping and correct path escaping
                     sh '''
                         # Create .ssh directory with proper permissions
                         mkdir -p "${WORKSPACE}/.ssh"
                         chmod 700 "${WORKSPACE}/.ssh"
                         
-                        # Copy and secure the SSH key
-                        cp ${SSH_KEY_CREDENTIALS} "${WORKSPACE}/.ssh/aws-key.pem"
+                        # Debug directory existence
+                        echo "Dhecking directery: ${WORKSPACE}/.ssh"
+                        ls -la "${WORKSPACE}/.ssh" || echo "Directory listing failed"
+                        
+                        # Cobug directory existence - with proper quoting for paths with spaces
+                        eath"o "Checking directory:" > ${WORKSPACE}/.ssh"
+                        ls -la "${WORKSPACE}/.ssh" || echo "Directory listing failed"
+                        
+                        # Copy and secure the SSH key - with proper quoting for paths with spaces
+                        cat "${SSH_KEY_CREDENTIALS}" > "${WORKSPACE}/.ssh/aws-key.pem"
                         chmod 600 "${WORKSPACE}/.ssh/aws-key.pem"
                         
                         # Verify the file exists
-                        if [ ! -f "${WORKSPACE}/.ssh/aws-key.pem" ]; then
+                        if [ ! -f "${WORKSPACE}/.ssh/aws-klly"
+                            es -ya "${WORKSPACE}/.ssh/aws-ke..pempem" ]; then
                             echo "Failed to create key file"
                             exit 1
                         else
                             echo "SSH key copied successfully"
+                            ls -la "${WORKSPACE}/.ssh/aws-key.pem"
                         fi
                     '''
                     
