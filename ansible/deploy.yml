@@ -114,3 +114,24 @@
           - "URL Shortener application is now available at:"
           - "Frontend: http://{{ app_domain }}:{{ client_port }}"
           - "Backend API: http://{{ app_domain }}:{{ server_port }}/api"
+
+    - name: Kill any running apt processes
+      shell: |
+        sudo killall apt-get || true
+        sudo rm -f /var/lib/dpkg/lock-frontend
+        sudo rm -f /var/lib/apt/lists/lock
+      become: yes
+
+    - name: Wait for lock to be released
+      shell: while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done;
+      become: yes
+
+    - name: Install python3-pip with retry
+      apt:
+        name: python3-pip
+        state: present
+        update_cache: yes
+      retries: 3
+      delay: 10
+      register: pip_install
+      until: pip_install is success

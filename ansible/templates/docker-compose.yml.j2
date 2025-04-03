@@ -1,56 +1,220 @@
-version: '3'
-services:
-  server:
-    image: {{ dockerhub_username }}/{{ app_name }}-server:latest
-    ports:
-      - "{{ server_port }}:5001"
-    networks:
-      - urlshortner-network
-    depends_on:
-      - mongo
-    environment:
-      - DB=mongodb://mongo:27017/urlshortner_database
-      - PORT=5001
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+---
+- name: Deploy URL Shortener Application
+  hosts: url_shortener
+  become: yes
+  vars:
+    app_name: urlshortner
+    dockerhub_username: venujan
+    app_domain: "{{ ansible_host }}"
+    mongo_port: 27019
+    server_port: 5001
+    client_port: 8000
+  
+  # Pre-tasks for system preparation and cleanup
+  pre_tasks:
+    - name: Cleanup apt locks and processes
+      block:
+        - name: Kill any running apt processes
+          shell: |
+            sudo killall apt-get || true
+            sudo pkill -f apt
+            sudo rm -f /var/lib/dpkg/lock-frontend
+            sudo rm -f /var/lib/apt/lists/lock
+          ignore_errors: yes
 
-  client:
-    image: {{ dockerhub_username }}/{{ app_name }}-client:latest
-    ports:
-      - "{{ client_port }}:80"
-    networks:
-      - urlshortner-network
-    depends_on:
-      - server
-    environment:
-      - REACT_APP_API_URL=http://{{ app_domain }}:{{ server_port }}/api
-    restart: unless-stopped
+        - name: Ensure apt is not locked
+          shell: |
+            while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do 
+              echo "Waiting for apt lock to be released..."
+              sleep 5; 
+            done
+          changed_when: false
+          ignore_errors: yes
 
-  mongo:
-    image: mongo:latest
-    ports:
-      - "{{ mongo_port }}:27017"
-    networks:
-      - urlshortner-network
-    volumes:
-      - mongo-data:/data/db
-    restart: unless-stopped
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+  # Main deployment tasks
+  tasks:
+    - name: Install required system packages
+      block:
+        - name: Install base packages
+          apt:
+            name: 
+              - apt-transport-https
+              - ca-certificates
+              - curl
+              - gnupg
+              - lsb-release
+              - python3-pip
+              - software-properties-common
+            state: present
+            update_cache: yes
+            cache_valid_time: 3600
+          register: base_packages_install
+          retries: 3
+          delay: 10
+          until: base_packages_install is success
 
-networks:
-  urlshortner-network:
-    driver: bridge
+    - name: Setup Docker Repository
+      block:
+        - name: Add Docker GPG key
+          apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+          register: docker_gpg
+          retries: 3
+          delay: 5
+          until: docker_gpg is success
 
-volumes:
-  mongo-data:
-    driver: local
+        - name: Add Docker repository
+          apt_repository:
+            repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+            update_cache: yes
+          register: docker_repo
+          retries: 3
+          delay: 5
+          until: docker_repo is success
+
+    - name: Install Docker and Dependencies
+      block:
+        - name: Install Docker packages
+          apt:
+            name: 
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-compose-plugin
+            state: present
+            update_cache: yes
+          register: docker_install
+          retries: 3
+          delay: 10
+          until: docker_install is success
+
+        - name: Install docker-compose using pip
+          pip:
+            name: 
+              - docker
+              - docker-compose
+            state: present
+          register: docker_compose_install
+          retries: 3
+          delay: 10
+          until: docker_compose_install is success
+
+    - name: Configure Docker Service
+      block:
+        - name: Start and enable Docker service
+          systemd:
+            name: docker
+            state: started
+            enabled: yes
+
+        - name: Add ubuntu user to docker group
+          user:
+            name: ubuntu
+            groups: docker
+            append: yes
+
+    - name: Prepare Application Deployment
+      block:
+        - name: Create app directory
+          file:
+            path: "/home/ubuntu/{{ app_name }}"
+            state: directory
+            owner: ubuntu
+            group: ubuntu
+            mode: '0755'
+
+        - name: Stop and remove existing containers
+          shell: |
+            docker stop $(docker ps -aq) || true
+            docker rm $(docker ps -aq) || true
+          ignore_errors: yes
+
+        - name: Create docker-compose.yml
+          template:
+            src: docker-compose.yml.j2
+            dest: "/home/ubuntu/{{ app_name }}/docker-compose.yml"
+            owner: ubuntu
+            group: ubuntu
+            mode: '0644'
+
+    - name: Deploy Docker Containers
+      block:
+        - name: Pull Docker images
+          shell: |
+            docker pull {{ dockerhub_username }}/{{ app_name }}-server:latest
+            docker pull {{ dockerhub_username }}/{{ app_name }}-client:latest
+          args:
+            chdir: "/home/ubuntu/{{ app_name }}"
+          register: docker_pull
+          retries: 3
+          delay: 10
+          until: docker_pull is success
+
+        - name: Run Docker Compose
+          shell: |
+            docker-compose up -d
+          args:
+            chdir: "/home/ubuntu/{{ app_name }}"
+          become: yes
+          become_user: ubuntu
+          register: docker_compose_up
+          retries: 3
+          delay: 10
+          until: docker_compose_up is success
+
+    - name: Verify Deployment
+      block:
+        - name: Check if containers are running
+          shell: docker ps
+          register: docker_status
+          failed_when: docker_status.rc != 0
+
+        - name: Display container status
+          debug:
+            var: docker_status.stdout_lines
+
+        - name: Wait for services to be ready
+          uri:
+            url: "http://{{ app_domain }}:{{ server_port }}/api/health"
+            status_code: 200
+          register: health_check
+          retries: 6
+          delay: 10
+          until: health_check.status == 200
+
+    - name: Final Deployment Information
+      block:
+        - name: Display application URL
+          debug:
+            msg: 
+              - "URL Shortener application is now available at:"
+              - "Frontend: http://{{ app_domain }}:{{ client_port }}"
+              - "Backend API: http://{{ app_domain }}:{{ server_port }}/api"
+
+  # Error handling and post-deployment cleanup
+  post_tasks:
+    - name: Post-deployment Cleanup
+      block:
+        - name: Cleanup docker images
+          shell: |
+            docker image prune -f
+          ignore_errors: yes
+      
+  # Handlers for restarting services if needed
+  handlers:
+    - name: Restart Docker
+      systemd:
+        name: docker
+        state: restarted
+
+# Optional failure recovery
+  vars_prompt:
+    - name: continue_on_fail
+      prompt: "Continue deployment even if some tasks fail? (yes/no)"
+      default: "no"
+      private: no
+
+  # Error handling strategy
+  any_errors_fatal: "{{ continue_on_fail == 'no' }}"

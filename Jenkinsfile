@@ -138,6 +138,11 @@ pipeline {
             steps {
                 dir('ansible') {
                     sh '''
+                        # Cleanup potential lock issues
+                        sudo killall apt-get || true
+                        sudo rm -f /var/lib/dpkg/lock-frontend
+                        sudo rm -f /var/lib/apt/lists/lock
+                        
                         mkdir -p "${WORKSPACE}/.ssh"
                         chmod 700 "${WORKSPACE}/.ssh"
                         
@@ -147,20 +152,40 @@ pipeline {
                         # Create the hosts file with app_servers group
                         echo "[app_servers]" > hosts
                         echo "url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/.ssh/aws-key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> hosts
-                        
-                        # Debug: Show hosts file content
-                        echo "---------- HOSTS FILE CONTENT ----------"
-                        cat hosts
-                        echo "----------------------------------------"
-                        
-                        # Debug: Show playbook content
-                        echo "---------- PLAYBOOK CONTENT ----------"
-                        cat deploy.yml
-                        echo "--------------------------------------"
-                        
-                        # Run ansible with verbose logging
-                        ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -vvv -i hosts deploy.yml --extra-vars "app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}"
                     '''
+                    
+                    // Retry mechanism for Ansible deployment
+                    script {
+                        def maxRetries = 3
+                        def retryCount = 0
+                        def deploymentSuccessful = false
+                        
+                        while (!deploymentSuccessful && retryCount < maxRetries) {
+                            try {
+                                sh '''
+                                    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -vvv -i hosts deploy.yml \
+                                    --extra-vars "app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}" \
+                                    --skip-tags "apt-lock"
+                                '''
+                                deploymentSuccessful = true
+                            } catch (Exception e) {
+                                retryCount++
+                                echo "Deployment attempt ${retryCount} failed: ${e.getMessage()}"
+                                
+                                // Additional cleanup between attempts
+                                sh '''
+                                    sudo killall apt-get || true
+                                    sudo rm -f /var/lib/dpkg/lock-frontend
+                                    sudo rm -f /var/lib/apt/lists/lock
+                                    sleep 30  // Wait before retrying
+                                '''
+                                
+                                if (retryCount >= maxRetries) {
+                                    error "Ansible deployment failed after ${maxRetries} attempts"
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -168,12 +193,18 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 sh '''
-                    if curl -s -f -m 10 http://${EC2_PUBLIC_IP}:5001/api/health; then
+                    # Wait a bit to ensure services are up
+                    sleep 30
+                    
+                    # Check health of backend and frontend
+                    if curl -s -f -m 10 http://${EC2_PUBLIC_IP}:5001/api/health && 
+                       curl -s -f -m 10 http://${EC2_PUBLIC_IP}:8000; then
                         echo "Backend API is accessible at http://${EC2_PUBLIC_IP}:5001/api"
                         echo "Frontend is accessible at http://${EC2_PUBLIC_IP}:8000"
                     else
                         echo "Warning: Could not verify deployment"
                         echo "Please manually check http://${EC2_PUBLIC_IP}:8000 and http://${EC2_PUBLIC_IP}:5001/api"
+                        exit 1
                     fi
                 '''
             }
