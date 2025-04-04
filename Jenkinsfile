@@ -133,6 +133,12 @@ pipeline {
                 '''
             }
         }
+
+        stage('Install Ansible Dependencies') {
+    steps {
+        sh 'ansible-galaxy collection install community.docker'
+    }
+}
         
         stage('Deploy with Ansible') {
             steps {

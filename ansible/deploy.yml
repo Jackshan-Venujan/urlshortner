@@ -9,8 +9,17 @@
     mongo_port: 27019
     server_port: 5001
     client_port: 8000
-  
+    
   tasks:
+    # Pre-tasks to handle potential apt locks more gracefully
+    - name: Wait for apt locks to be released
+      shell: |
+        while lsof /var/lib/dpkg/lock >/dev/null 2>&1 || lsof /var/lib/apt/lists/lock >/dev/null 2>&1 || lsof /var/cache/apt/archives/lock >/dev/null 2>&1; do
+          sleep 5
+        done
+      args:
+        executable: /bin/bash
+        
     - name: Install required packages
       apt:
         name: "{{ item }}"
@@ -23,17 +32,21 @@
         - gnupg
         - lsb-release
         - python3-pip
-      
+      register: apt_result
+      retries: 3
+      delay: 5
+      until: apt_result is success
+        
     - name: Add Docker GPG key
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
-    
+        
     - name: Add Docker repository
       apt_repository:
         repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
         state: present
-    
+        
     - name: Install Docker and dependencies
       apt:
         name: "{{ item }}"
@@ -44,24 +57,28 @@
         - docker-ce-cli
         - containerd.io
         - docker-compose-plugin
-    
+      register: docker_install
+      retries: 3
+      delay: 5
+      until: docker_install is success
+        
     - name: Install docker-compose using pip
       pip:
         name: docker-compose
         state: present
-    
+        
     - name: Start and enable Docker service
       systemd:
         name: docker
         state: started
         enabled: yes
-    
+        
     - name: Add ubuntu user to docker group
       user:
         name: ubuntu
         groups: docker
         append: yes
-    
+        
     - name: Create app directory
       file:
         path: "/home/ubuntu/{{ app_name }}"
@@ -69,13 +86,26 @@
         owner: ubuntu
         group: ubuntu
         mode: '0755'
-      
+          
     - name: Stop and remove existing containers
-      shell: |
-        docker stop $(docker ps -aq) || true
-        docker rm $(docker ps -aq) || true
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - "{{ app_name }}-server"
+        - "{{ app_name }}-client"
+        - "{{ app_name }}-mongo"
+      register: container_info
       ignore_errors: yes
-    
+      
+    - name: Remove containers if they exist
+      community.docker.docker_container:
+        name: "{{ item.item }}"
+        state: absent
+        force_kill: yes
+      loop: "{{ container_info.results }}"
+      when: item.exists
+      ignore_errors: yes
+        
     - name: Create docker-compose.yml
       template:
         src: docker-compose.yml.j2
@@ -83,55 +113,43 @@
         owner: ubuntu
         group: ubuntu
         mode: '0644'
-    
+        
     - name: Pull Docker images
-      shell: |
-        docker pull {{ dockerhub_username }}/{{ app_name }}-server:latest
-        docker pull {{ dockerhub_username }}/{{ app_name }}-client:latest
-      args:
-        chdir: "/home/ubuntu/{{ app_name }}"
+      community.docker.docker_image:
+        name: "{{ dockerhub_username }}/{{ app_name }}-{{ item }}"
+        source: pull
+        tag: latest
+      loop:
+        - server
+        - client
       become: yes
-    
+        
     - name: Run Docker Compose
-      shell: |
-        sudo docker-compose up -d
-      args:
-        chdir: "/home/ubuntu/{{ app_name }}"
+      # Using become instead of shell with sudo
       become: yes
       become_user: ubuntu
-    
+      community.docker.docker_compose:
+        project_src: "/home/ubuntu/{{ app_name }}"
+        state: present
+        
     - name: Check if containers are running
-      shell: docker ps
-      register: docker_status
-    
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - "{{ app_name }}-server"
+        - "{{ app_name }}-client"
+        - "{{ app_name }}-mongo"
+      register: container_status
+        
     - name: Display container status
       debug:
-        var: docker_status.stdout_lines
-    
+        msg: "Container {{ item.item }} is {{ 'running' if item.container.State.Running else 'not running' }}"
+      loop: "{{ container_status.results }}"
+      when: item.exists
+        
     - name: Display application URL
       debug:
-        msg: 
+        msg:
           - "URL Shortener application is now available at:"
           - "Frontend: http://{{ app_domain }}:{{ client_port }}"
           - "Backend API: http://{{ app_domain }}:{{ server_port }}/api"
-
-    - name: Kill any running apt processes
-      shell: |
-        sudo killall apt-get || true
-        sudo rm -f /var/lib/dpkg/lock-frontend
-        sudo rm -f /var/lib/apt/lists/lock
-      become: yes
-
-    - name: Wait for lock to be released
-      shell: while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done;
-      become: yes
-
-    - name: Install python3-pip with retry
-      apt:
-        name: python3-pip
-        state: present
-        update_cache: yes
-      retries: 3
-      delay: 10
-      register: pip_install
-      until: pip_install is success
