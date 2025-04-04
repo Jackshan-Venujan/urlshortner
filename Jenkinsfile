@@ -133,29 +133,26 @@ pipeline {
                 '''
             }
         }
-
-        stage('Install Ansible Dependencies') {
-    steps {
-        sh 'ansible-galaxy collection install community.docker'
-    }
-}
         
         stage('Deploy with Ansible') {
             steps {
                 dir('ansible') {
-                    // Using withCredentials for secure key handling
-                    withCredentials([file(credentialsId: 'aws-ssh-key', variable: 'SSH_KEY_FILE')]) {
-                        sh '''
-                            # Create hosts directory without sudo
-                            mkdir -p "${WORKSPACE}/.ssh"
-                            chmod 700 "${WORKSPACE}/.ssh"
-                            
-                            # Use the SSH key directly from Jenkins credentials
-                            # Create the hosts file with app_servers group
-                            echo "[app_servers]" > hosts
-                            echo "url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${SSH_KEY_FILE} ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> hosts
-                        '''
-                    }
+                    sh '''
+                        # Cleanup potential lock issues
+                        sudo killall apt-get || true
+                        sudo rm -f /var/lib/dpkg/lock-frontend
+                        sudo rm -f /var/lib/apt/lists/lock
+                        
+                        mkdir -p "${WORKSPACE}/.ssh"
+                        chmod 700 "${WORKSPACE}/.ssh"
+                        
+                        cat "${SSH_KEY_CREDENTIALS}" > "${WORKSPACE}/.ssh/aws-key.pem"
+                        chmod 600 "${WORKSPACE}/.ssh/aws-key.pem"
+                        
+                        # Create the hosts file with app_servers group
+                        echo "[app_servers]" > hosts
+                        echo "url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/.ssh/aws-key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> hosts
+                    '''
                     
                     // Retry mechanism for Ansible deployment
                     script {
@@ -165,24 +162,27 @@ pipeline {
                         
                         while (!deploymentSuccessful && retryCount < maxRetries) {
                             try {
-                                withCredentials([file(credentialsId: 'aws-ssh-key', variable: 'SSH_KEY_FILE')]) {
-                                    sh '''
-                                        ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -vvv -i hosts deploy.yml \
-                                        --extra-vars "app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}" \
-                                        --ssh-common-args="-i ${SSH_KEY_FILE}"
-                                    '''
-                                }
+                                sh '''
+                                    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -vvv -i hosts deploy.yml \
+                                    --extra-vars "app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}" \
+                                    --skip-tags "apt-lock"
+                                '''
                                 deploymentSuccessful = true
                             } catch (Exception e) {
                                 retryCount++
                                 echo "Deployment attempt ${retryCount} failed: ${e.getMessage()}"
                                 
+                                // Additional cleanup between attempts
+                                sh '''
+                                    sudo killall apt-get || true
+                                    sudo rm -f /var/lib/dpkg/lock-frontend
+                                    sudo rm -f /var/lib/apt/lists/lock
+                                    sleep 30  // Wait before retrying
+                                '''
+                                
                                 if (retryCount >= maxRetries) {
                                     error "Ansible deployment failed after ${maxRetries} attempts"
                                 }
-                                
-                                // Wait before retrying without sudo commands
-                                sh 'sleep 30'
                             }
                         }
                     }
