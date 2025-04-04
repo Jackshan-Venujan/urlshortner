@@ -30,14 +30,14 @@ pipeline {
                 stage('Server Dependencies') {
                     steps {
                         dir('server') {
-                            sh 'npm ci --only=prod'
+                            sh 'npm ci --omit=dev'
                         }
                     }
                 }
                 stage('Client Dependencies') {
                     steps {
                         dir('client') {
-                            sh 'npm ci --only=prod'
+                            sh 'npm ci --omit=dev'
                         }
                     }
                 }
@@ -86,15 +86,19 @@ pipeline {
                 docker push ${DOCKERHUB_USERNAME}/${APP_NAME}-client:latest &
                 wait
                 '''
+                sh 'docker logout'
             }
         }
         
         stage('Provision Infrastructure with Terraform') {
             steps {
                 dir('terraform') {
-                    withEnv([
-                        "AWS_ACCESS_KEY_ID=${AWS_CREDENTIALS_USR}",
-                        "AWS_SECRET_ACCESS_KEY=${AWS_CREDENTIALS_PSW}"
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'aws-credentials', 
+                            usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                        )
                     ]) {
                         sh '''
                         terraform init -input=false
@@ -115,21 +119,22 @@ pipeline {
         stage('Wait for EC2 Instance') {
             steps {
                 sh '''
-                    echo "Waiting for SSH on ${EC2_PUBLIC_IP} to become available..."
-                    timeout=300
-                    counter=0
-                    interval=10
+                    max_attempts=10
+                    attempt=0
                     
-                    until nc -z -w 5 ${EC2_PUBLIC_IP} 22 || [ $counter -ge $timeout ]; do
-                        echo "SSH not available yet, waiting ${interval} seconds... ($counter/$timeout seconds elapsed)"
-                        sleep ${interval}
-                        counter=$((counter + interval))
+                    while [ $attempt -lt $max_attempts ]; do
+                        if nc -z -w 10 ${EC2_PUBLIC_IP} 22; then
+                            echo "SSH is now available on ${EC2_PUBLIC_IP}"
+                            exit 0
+                        fi
+                        
+                        echo "Waiting for SSH on ${EC2_PUBLIC_IP}... (Attempt $((attempt+1))/$max_attempts)"
+                        sleep 30
+                        attempt=$((attempt+1))
                     done
                     
-                    if [ $counter -ge $timeout ]; then
-                        echo "Timed out waiting for SSH to become available"
-                        exit 1
-                    fi
+                    echo "Timed out waiting for SSH to become available"
+                    exit 1
                 '''
             }
         }
@@ -137,53 +142,32 @@ pipeline {
         stage('Deploy with Ansible') {
             steps {
                 dir('ansible') {
-                    sh '''
-                        # Cleanup potential lock issues
-                        sudo killall apt-get || true
-                        sudo rm -f /var/lib/dpkg/lock-frontend
-                        sudo rm -f /var/lib/apt/lists/lock
-                        
-                        mkdir -p "${WORKSPACE}/.ssh"
-                        chmod 700 "${WORKSPACE}/.ssh"
-                        
-                        cat "${SSH_KEY_CREDENTIALS}" > "${WORKSPACE}/.ssh/aws-key.pem"
-                        chmod 600 "${WORKSPACE}/.ssh/aws-key.pem"
-                        
-                        # Create the hosts file with app_servers group
-                        echo "[app_servers]" > hosts
-                        echo "url_shortener ansible_host=${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/.ssh/aws-key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> hosts
-                    '''
-                    
-                    // Retry mechanism for Ansible deployment
                     script {
-                        def maxRetries = 3
-                        def retryCount = 0
-                        def deploymentSuccessful = false
-                        
-                        while (!deploymentSuccessful && retryCount < maxRetries) {
-                            try {
-                                sh '''
-                                    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -vvv -i hosts deploy.yml \
+                        try {
+                            // Prepare SSH key and inventory
+                            sh '''
+                                mkdir -p "${WORKSPACE}/.ssh"
+                                chmod 700 "${WORKSPACE}/.ssh"
+                                
+                                # Write SSH key securely
+                                echo "${SSH_KEY_CREDENTIALS}" > "${WORKSPACE}/.ssh/aws-key.pem"
+                                chmod 600 "${WORKSPACE}/.ssh/aws-key.pem"
+                                
+                                # Create dynamic inventory
+                                echo "[url_shortener]" > hosts
+                                echo "${EC2_PUBLIC_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/.ssh/aws-key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> hosts
+                            '''
+                            
+                            // Run Ansible playbook with robust error handling
+                            sh '''
+                                export ANSIBLE_HOST_KEY_CHECKING=False
+                                ansible-playbook -i hosts deploy.yml \
                                     --extra-vars "app_host_ip=${EC2_PUBLIC_IP} app_domain=${EC2_PUBLIC_DNS}" \
-                                    --skip-tags "apt-lock"
-                                '''
-                                deploymentSuccessful = true
-                            } catch (Exception e) {
-                                retryCount++
-                                echo "Deployment attempt ${retryCount} failed: ${e.getMessage()}"
-                                
-                                // Additional cleanup between attempts
-                                sh '''
-                                    sudo killall apt-get || true
-                                    sudo rm -f /var/lib/dpkg/lock-frontend
-                                    sudo rm -f /var/lib/apt/lists/lock
-                                    sleep 30  // Wait before retrying
-                                '''
-                                
-                                if (retryCount >= maxRetries) {
-                                    error "Ansible deployment failed after ${maxRetries} attempts"
-                                }
-                            }
+                                    -vvv
+                            '''
+                        } catch (Exception e) {
+                            echo "Ansible deployment failed: ${e.getMessage()}"
+                            throw e
                         }
                     }
                 }
@@ -192,39 +176,66 @@ pipeline {
         
         stage('Verify Deployment') {
             steps {
-                sh '''
-                    # Wait a bit to ensure services are up
-                    sleep 30
+                script {
+                    // Enhanced deployment verification
+                    def maxRetries = 3
+                    def retryCount = 0
+                    def serviceCheck = false
                     
-                    # Check health of backend and frontend
-                    if curl -s -f -m 10 http://${EC2_PUBLIC_IP}:5001/api/health && 
-                       curl -s -f -m 10 http://${EC2_PUBLIC_IP}:8000; then
-                        echo "Backend API is accessible at http://${EC2_PUBLIC_IP}:5001/api"
-                        echo "Frontend is accessible at http://${EC2_PUBLIC_IP}:8000"
-                    else
-                        echo "Warning: Could not verify deployment"
-                        echo "Please manually check http://${EC2_PUBLIC_IP}:8000 and http://${EC2_PUBLIC_IP}:5001/api"
-                        exit 1
-                    fi
-                '''
+                    while (!serviceCheck && retryCount < maxRetries) {
+                        try {
+                            sh '''
+                                # Wait for services to fully start
+                                sleep 60
+                                
+                                # Robust health checks
+                                backend_check=$(curl -s -o /dev/null -w "%{http_code}" http://${EC2_PUBLIC_IP}:5001/api/health)
+                                frontend_check=$(curl -s -o /dev/null -w "%{http_code}" http://${EC2_PUBLIC_IP}:8000)
+                                
+                                # Check if both services return 200 OK
+                                if [ "$backend_check" -eq 200 ] && [ "$frontend_check" -eq 200 ]; then
+                                    echo "Backend and Frontend are accessible"
+                                    exit 0
+                                else
+                                    echo "Service checks failed. Backend: $backend_check, Frontend: $frontend_check"
+                                    exit 1
+                                fi
+                            '''
+                            serviceCheck = true
+                        } catch (Exception e) {
+                            retryCount++
+                            echo "Deployment verification attempt ${retryCount} failed: ${e.getMessage()}"
+                            sleep(30) // Wait before retrying
+                        }
+                    }
+                    
+                    if (!serviceCheck) {
+                        error "Failed to verify deployment after ${maxRetries} attempts"
+                    }
+                }
             }
         }
     }
     
     post {
         always {
+            // Cleanup steps
             sh 'docker logout || true'
             cleanWs()
         }
+        
         success {
             echo """
-            Deployment successful! Your URL Shortener application is now available at:
-            Frontend: http://${EC2_PUBLIC_IP}:8000
-            Backend API: http://${EC2_PUBLIC_IP}:5001/api
+            Deployment Successful! 
+            URL Shortener Application is now available at:
+            - Frontend: http://${EC2_PUBLIC_IP}:8000
+            - Backend API: http://${EC2_PUBLIC_IP}:5001/api
             """
         }
+        
         failure {
-            echo "Pipeline failed. Please check the logs for more information."
+            echo "Pipeline failed. Please review the logs for detailed error information."
+            // Optional: Add notification mechanism like email or Slack
         }
     }
 }

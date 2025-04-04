@@ -9,73 +9,126 @@
     mongo_port: 27019
     server_port: 5001
     client_port: 8000
-  
-  tasks:
-    - name: Install required packages
+    docker_compose_version: "1.29.2"
+
+  pre_tasks:
+    - name: Ensure system is updated
       apt:
-        name: "{{ item }}"
+        update_cache: yes
+        upgrade: dist
+        cache_valid_time: 3600
+      register: system_update
+      retries: 3
+      delay: 10
+      until: system_update is success
+
+    - name: Install prerequisite packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+          - software-properties-common
         state: present
         update_cache: yes
-      loop:
-        - apt-transport-https
-        - ca-certificates
-        - curl
-        - gnupg
-        - lsb-release
-        - python3-pip
-      
-    - name: Add Docker GPG key
+      register: prereq_install
+      retries: 3
+      delay: 10
+      until: prereq_install is success
+
+  tasks:
+    - name: Remove conflicting Docker packages
+      apt:
+        name:
+          - docker
+          - docker-engine
+          - docker.io
+          - containerd
+          - runc
+        state: absent
+
+    - name: Add Docker official GPG key
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
-    
-    - name: Add Docker repository
-      apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-        state: present
-    
-    - name: Install Docker and dependencies
+        keyring: /etc/apt/keyrings/docker.gpg
+
+    - name: Set up Docker repository
+      shell: |
+        echo \
+          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+          $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+          sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+
+    - name: Install Docker and related packages
       apt:
-        name: "{{ item }}"
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
         state: present
         update_cache: yes
-      loop:
-        - docker-ce
-        - docker-ce-cli
-        - containerd.io
-        - docker-compose-plugin
-    
-    - name: Install docker-compose using pip
+      register: docker_install
+      retries: 3
+      delay: 10
+      until: docker_install is success
+
+    - name: Install Docker Compose using pip
       pip:
-        name: docker-compose
+        name: 
+          - docker-compose
         state: present
-    
-    - name: Start and enable Docker service
+        version: "{{ docker_compose_version }}"
+      register: docker_compose_install
+      retries: 3
+      delay: 10
+      until: docker_compose_install is success
+
+    - name: Ensure Docker service is started and enabled
       systemd:
         name: docker
         state: started
         enabled: yes
-    
+
     - name: Add ubuntu user to docker group
       user:
         name: ubuntu
         groups: docker
         append: yes
-    
-    - name: Create app directory
+
+    - name: Create application directory
       file:
         path: "/home/ubuntu/{{ app_name }}"
         state: directory
         owner: ubuntu
         group: ubuntu
         mode: '0755'
-      
+
     - name: Stop and remove existing containers
       shell: |
-        docker stop $(docker ps -aq) || true
-        docker rm $(docker ps -aq) || true
+        docker stop $(docker ps -a -q) || true
+        docker rm $(docker ps -a -q) || true
       ignore_errors: yes
-    
+
+    - name: Pull Docker images
+      docker_image:
+        name: "{{ dockerhub_username }}/{{ app_name }}-{{ item }}:latest"
+        source: pull
+      loop:
+        - server
+        - client
+      register: pull_images
+      retries: 3
+      delay: 10
+      until: pull_images is success
+
     - name: Create docker-compose.yml
       template:
         src: docker-compose.yml.j2
@@ -83,55 +136,55 @@
         owner: ubuntu
         group: ubuntu
         mode: '0644'
-    
-    - name: Pull Docker images
-      shell: |
-        docker pull {{ dockerhub_username }}/{{ app_name }}-server:latest
-        docker pull {{ dockerhub_username }}/{{ app_name }}-client:latest
-      args:
-        chdir: "/home/ubuntu/{{ app_name }}"
-      become: yes
-    
+
     - name: Run Docker Compose
-      shell: |
-        sudo docker-compose up -d
-      args:
-        chdir: "/home/ubuntu/{{ app_name }}"
+      community.docker.docker_compose:
+        project_src: "/home/ubuntu/{{ app_name }}"
+        state: present
+        pull: yes
       become: yes
       become_user: ubuntu
-    
-    - name: Check if containers are running
-      shell: docker ps
-      register: docker_status
-    
-    - name: Display container status
-      debug:
-        var: docker_status.stdout_lines
-    
-    - name: Display application URL
-      debug:
-        msg: 
-          - "URL Shortener application is now available at:"
-          - "Frontend: http://{{ app_domain }}:{{ client_port }}"
-          - "Backend API: http://{{ app_domain }}:{{ server_port }}/api"
 
-    - name: Kill any running apt processes
-      shell: |
-        sudo killall apt-get || true
-        sudo rm -f /var/lib/dpkg/lock-frontend
-        sudo rm -f /var/lib/apt/lists/lock
-      become: yes
-
-    - name: Wait for lock to be released
-      shell: while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done;
-      become: yes
-
-    - name: Install python3-pip with retry
-      apt:
-        name: python3-pip
-        state: present
-        update_cache: yes
-      retries: 3
+    - name: Wait for services to be fully operational
+      uri:
+        url: "http://localhost:{{ item.port }}{{ item.endpoint }}"
+        status_code: 200
+      register: service_check
+      retries: 10
       delay: 10
-      register: pip_install
-      until: pip_install is success
+      until: service_check is success
+      loop:
+        - { port: "{{ server_port }}", endpoint: "/api/health" }
+        - { port: "{{ client_port }}", endpoint: "/" }
+      ignore_errors: yes
+
+    - name: Display application status
+      block:
+        - name: Check running containers
+          shell: docker ps
+          register: docker_status
+          changed_when: false
+
+        - name: Log container status
+          debug:
+            var: docker_status.stdout_lines
+
+        - name: Log application endpoints
+          debug:
+            msg:
+              - "URL Shortener application is now available at:"
+              - "Frontend: http://{{ app_domain }}:{{ client_port }}"
+              - "Backend API: http://{{ app_domain }}:{{ server_port }}/api"
+      
+  post_tasks:
+    - name: Cleanup
+      block:
+        - name: Prune Docker system
+          shell: docker system prune -f
+          ignore_errors: yes
+
+  handlers:
+    - name: Restart Docker
+      systemd:
+        name: docker
+        state: restarted
